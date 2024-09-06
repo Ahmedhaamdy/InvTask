@@ -1,0 +1,92 @@
+title: Detection OF The Persistent Danger of Remcos RAT
+id: 1234abcd-56ef-7890-ghij-klmnopqrstuv
+description: Detects multiple stages of Remcos RAT activities including Initial Access, Execution, Defense Evasion, Persistence, and C2.
+status: stable
+author: Ahmed Hamdy Shaker
+logsource:
+  product: windows
+  service: 
+    - sysmon 
+    - Security
+
+detection:
+  selection_initial_access:
+    EventID: 3
+    destination_ip: '141.95.16.111'
+    destination_port: 8080
+    Image|contains: '.bat'
+    
+  
+  selection_execution_powershell:
+    EventID: 4688
+    Image: 'powershell.exe'
+    CommandLine|contains:
+      - '-WindowStyle hidden'
+      - 'Add-MpPreference -ExclusionExtension'
+      - 'Invoke-WebRequest'
+      - 'RiotGames.exe'
+  
+  selection_execution_cmd:
+    EventID: 4688
+    Image: 'cmd.exe'
+    CommandLine|contains: '%userprofile%\AppData\Local\Temp\RiotGames.exe'
+  
+  selection_defense_evasion:
+    EventID: 4657
+    TargetObject: 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA'
+    Details|contains: '0x00000000'
+  
+  selection_persistence_registry:
+    EventID: 4657
+    TargetObject:
+      - 'HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run'
+      - 'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    Details|contains: 'terminal.exe'
+  
+  selection_keylogging:
+    EventID: 4663
+    ObjectName: 'C:\ProgramData\Terminal\logs.dat'
+    AccessMask: '0x2'
+
+  selection_c2_geo_location:
+    EventID: 3
+    destination_ip: 'geoplugin.net'
+    destination_port: 80
+
+  selection_c2_Communication:
+    EventID: 3
+    destination_ip: '141.95.16.111'
+    destination_port : '2404'
+
+  selection_iocs:
+    hash_md5|contains:
+      - '4388789C81AFD593C5FC2F0249502153' # recover.bat
+      - '5379d703170770355efdbce86dcdb1d3' # RiotGames.exe
+      - 'b28167faf2bcf0150d5e816346abb42d' # newpy.exe
+      - '25fca21c810a8ffabf4fdf3b1755c73c' # echo-4662-2DF5.exe
+      - '791545E6E3C5EB61DD12CCFBAE1B9982' # 123.exe
+    destination_ip|contains:
+      - '141.95.16.111' # C2 Server
+
+  condition: selection_initial_access or selection_execution_powershell or selection_execution_cmd or selection_defense_evasion or selection_persistence_registry or selection_keylogging or selection_c2_geo_location or selection_iocs
+fields:
+  - EventID
+  - destination_ip
+  - destination_port
+  - Image
+  - CommandLine
+  - ObjectName
+  - TargetObject
+  - Details
+  - hash_md5
+falsepositives:
+  - Legitimate system activities or software updates
+level: critical
+tags:
+  - attack.t1566.001 # Phishing
+  - attack.t1204.002 # Malicious File Execution
+  - attack.t1059.001 # PowerShell
+  - attack.t1547.001 # Registry Run Keys
+  - attack.t1112 # Modify Registry
+  - attack.t1056.001 # Input Capture: Keylogging
+  - attack.t1071.001 # C2 via Web Protocols
