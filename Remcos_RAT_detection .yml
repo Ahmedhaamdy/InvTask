@@ -1,0 +1,133 @@
+
+title: Detection OF The Persistent Danger of Remcos RAT
+id: 5b6f1a67-8f7a-4c41-8d2a-7b7a6a9f1c57
+description: Detects multiple stages of Remcos RAT activities including Initial Access, Execution, Defense Evasion, Persistence,Exfilteration and C2.
+status: stable
+author: Ahmed Hamdy Shaker
+Date: 9/7/2024
+resources:
+  - "CYFIRMA Threat Intelligence Report: [The Persistent Danger of Remcos RAT](https://www.cyfirma.com/research/the-persistent-danger-of-remcos-rat/)"
+  - "MITRE ATT&CK: [Techniques and Tactics](https://attack.mitre.org/)"
+  - "Sigma Rule Repository: [GitHub](https://github.com/SigmaHQ/sigma)"
+logsource:
+  product: windows
+  service: 
+    - sysmon 
+    - Security
+
+detection:
+
+  # Detect Initial Access through suspicious batch (.bat) file creation
+  selection_initial_access:
+    EventID: 11
+    TargetObject|endswith: '.bat'
+    
+  # Detect suspicious execution  via PowerShell or CMD with suspicious parameters
+  selection_execution:
+    EventID: 3
+    EventID: 4688
+    Image: 
+    - 'powershell.exe'
+    - 'cmd.exe'
+    CommandLine|contains:
+      - '-WindowStyle hidden'
+      - 'Add-MpPreference -ExclusionExtension'                                # Microsoft Defender Evation
+      - 'Invoke-WebRequest  
+      - '\AppData\Local\Temp'
+      - '%TEMP%'
+
+  # Detect Defense Evasion via registry modification to disable UAC
+  selection_defence_evation:
+    EventID:
+      - 1
+      - 4688
+    ParentImage: 'C:\Windows\System32\cmd.exe'
+    Image: 'C:\Windows\System32\reg.exe'
+    CommandLine|contains:
+      - 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+      - 'EnableLUA'
+      - 'REG_DWORD /d 0'
+    
+   # Detect Persistence through modifications to Registry Run keys 
+  selection_persistence:
+    EventID: 4657
+    TargetObject:
+      - 'HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run'
+      - 'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    Details|contains: 
+      - 'terminal.exe'
+      - 'C:\ProgramData\Terminal\Terminal.exe'
+
+  # Detect Keylogging behavior through write in log.dat file
+  selection_keylogging:
+    EventID: 11
+    TargetFilename: 'C:\\programdata\\terminal\\log.dat'                        # Detect log.dat file Creation 
+
+    EventID: 4663
+    ObjectName: 'C:\ProgramData\Terminal\logs.dat'
+    AccessMask: '0x2'                                                          
+    ScriptBlockText|contains: '[Windows.Input.Keyboard]::IsKeyDown([System.Windows.Input.Key]::'
+                                                                                
+  # Detect Geo-location queries attempts
+  selection_geo_location:
+    EventID: 3
+    DestinationHostname: '*geoplugin.net*'
+    destination_port:
+      - 80
+      - 443
+
+  # Detect Command and Control (C2) communication 
+  selection_c2_Communication:
+    EventID: 3
+    destination_ip: '141.95.16.111'
+  
+   # Detect Exfiltration attempts 
+  Selection_Exfeltration:
+    EventID: 3
+    Image|contains:
+      - 'powershell.exe'
+      - 'curl.exe'
+      - 'wget.exe'
+    CommandLine|contains:
+      - 'upload'
+      - '-Uri'
+      - 'logs.dat'
+
+  # Detect Indicators of Compromise (IOCs) through known malicious files and IP addresses
+  selection_iocs:
+    hash_md5|contains:
+      - '4388789C81AFD593C5FC2F0249502153' # recover.bat
+      - '5379d703170770355efdbce86dcdb1d3' # RiotGames.exe
+      - 'b28167faf2bcf0150d5e816346abb42d' # newpy.exe
+      - '25fca21c810a8ffabf4fdf3b1755c73c' # echo-4662-2DF5.exe
+      - '791545E6E3C5EB61DD12CCFBAE1B9982' # 123.exe
+    destination_ip|contains:
+      - '141.95.16.111' # C2 Server
+
+  condition: (selection_initial_access and selection_c2_Communication )or selection_execution  or selection_defence_evation or selection_persistence or selection_keylogging or selection_geo_location or selection_iocs or selection_c2_Communication or (Selection_Exfeltration and selection_c2_Communication)
+fields:
+  - EventID
+  - destination_ip
+  - destination_port
+  - Image
+  - ParentImage
+  - Reg key
+  - CommandLine
+  - ObjectName
+  - TargetObject
+  - TargetFilename
+  - Details
+  - hash_md5
+falsepositives:
+  - Legitimate system activities or software updates
+  - Legitimate use of batch scripts for administrative tasks, software installations, or automated processes.
+ 
+level: critical
+tags:
+  - attack.t1566.001 # Phishing
+  - attack.t1204.002 # Malicious File Execution
+  - attack.t1059.001 # PowerShell
+  - attack.t1547.001 # Registry Run Keys
+  - attack.t1112 # Modify Registry
+  - attack.t1056.001 # Input Capture: Keylogging
+  - attack.t1071.001 # C2 via Web Protocols
