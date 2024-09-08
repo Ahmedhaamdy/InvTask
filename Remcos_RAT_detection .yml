@@ -1,7 +1,7 @@
 
 title: Detection OF The Persistent Danger of Remcos RAT
 id: 5b6f1a67-8f7a-4c41-8d2a-7b7a6a9f1c57
-description: Detects multiple stages of Remcos RAT activities including Initial Access, Execution, Defense Evasion, Persistence,Exfilteration and C2.
+description: Detects multiple stages of Remcos RAT activities including Initial Access, Execution, Defense Evasion, Persistence, Exfiltration and C2.
 status: stable
 author: Ahmed Hamdy Shaker
 Date: 9/7/2024
@@ -22,7 +22,7 @@ detection:
     EventID: 11
     TargetObject|endswith: '.bat'
     
-  # Detect suspicious execution  via PowerShell or CMD with suspicious parameters
+  # Detect suspicious execution  via PowerShell or CMD   =>    MITRE T1059.001: PowerShell
   selection_execution:
     EventID: 3
     EventID: 4688
@@ -31,12 +31,12 @@ detection:
     - 'cmd.exe'
     CommandLine|contains:
       - '-WindowStyle hidden'
-      - 'Add-MpPreference -ExclusionExtension'                                # Microsoft Defender Evation
+      - 'Add-MpPreference -ExclusionExtension'                                   # Microsoft Defender Evation
       - 'Invoke-WebRequest  
       - '\AppData\Local\Temp'
       - '%TEMP%'
 
-  # Detect Defense Evasion via registry modification to disable UAC
+  # Detect Defense Evasion via registry modification      =>  MITRE T1548.002: Bypass User Account Control
   selection_defence_evation:
     EventID:
       - 1
@@ -48,7 +48,8 @@ detection:
       - 'EnableLUA'
       - 'REG_DWORD /d 0'
     
-   # Detect Persistence through modifications to Registry Run keys 
+   # Detect Persistence through modifications to Registry Run keys   =>   MITRE T1547.001: Registry Run Keys
+
   selection_persistence:
     EventID: 4657
     TargetObject:
@@ -58,16 +59,26 @@ detection:
       - 'terminal.exe'
       - 'C:\ProgramData\Terminal\Terminal.exe'
 
-  # Detect Keylogging behavior through write in log.dat file
-  selection_keylogging:
-    EventID: 11
-    TargetFilename: 'C:\\programdata\\terminal\\log.dat'                        # Detect log.dat file Creation 
 
+  # Check if any writes attempts to log.dat file which used for storing the captured inputs
+  selection_Storing :
     EventID: 4663
     ObjectName: 'C:\ProgramData\Terminal\logs.dat'
-    AccessMask: '0x2'                                                          
-    ScriptBlockText|contains: '[Windows.Input.Keyboard]::IsKeyDown([System.Windows.Input.Key]::'
-                                                                                
+    AccessMask: '0x2'   
+
+  # Detect Keylogging behavior  =>             MITRE T1056.001: Input Capture: Keylogging 
+  selection_Keylogging:
+    EventID: 10 
+    EventID: 7
+    TargetImage|endswith:
+      - '\user32.dll'             # Common DLLs used by keyloggers
+      - '\kernel32.dll'
+    CallTrace|contains:
+      - 'SetWindowsHookEx'        # Windows APIs used by Keylogger
+      - 'GetKeyState'
+      - 'GetAsyncKeyState'
+ 
+
   # Detect Geo-location queries attempts
   selection_geo_location:
     EventID: 3
@@ -76,12 +87,13 @@ detection:
       - 80
       - 443
 
-  # Detect Command and Control (C2) communication 
+  # Detect Command and Control (C2) communication  
   selection_c2_Communication:
     EventID: 3
     destination_ip: '141.95.16.111'
   
-   # Detect Exfiltration attempts 
+   # Detect Exfiltration attempts  =>  MITRE T1041 – Exfiltration Over Command-and-Control Channel 
+
   Selection_Exfeltration:
     EventID: 3
     Image|contains:
@@ -104,7 +116,7 @@ detection:
     destination_ip|contains:
       - '141.95.16.111' # C2 Server
 
-  condition: (selection_initial_access and selection_c2_Communication )or selection_execution  or selection_defence_evation or selection_persistence or selection_keylogging or selection_geo_location or selection_iocs or selection_c2_Communication or (Selection_Exfeltration and selection_c2_Communication)
+  condition: (selection_initial_access and selection_c2_Communication ) or selection_execution or selection_defence_evation or selection_persistence or (selection_keylogging and selection_Storing) or selection_geo_location or selection_iocs or selection_c2_Communication or (Selection_Exfeltration and selection_c2_Communication)
 fields:
   - EventID
   - destination_ip
@@ -125,9 +137,9 @@ falsepositives:
 level: critical
 tags:
   - attack.t1566.001 # Phishing
-  - attack.t1204.002 # Malicious File Execution
   - attack.t1059.001 # PowerShell
+  - attack.t1548.002 # Bypass User Account Control
   - attack.t1547.001 # Registry Run Keys
-  - attack.t1112 # Modify Registry
+  - attack.t1112     # Modify Registry
   - attack.t1056.001 # Input Capture: Keylogging
   - attack.t1071.001 # C2 via Web Protocols
